@@ -61,11 +61,3 @@ The pipeline is defined in `pipelines/snowflake-to-hubspot.yaml` and consists of
 ## Customization
 
 The `custom-logic` processor can be modified to implement specific business rules for data synchronization between Snowflake and HubSpot.
-
-## Maintenance
-
-Regularly review and update the pipeline configuration to ensure it aligns with any changes in the Snowflake schema or HubSpot API.
-
-## Support
-
-For issues or questions, please contact the data engineering team.
