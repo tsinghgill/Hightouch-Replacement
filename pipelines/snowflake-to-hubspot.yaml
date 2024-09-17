@@ -1,0 +1,92 @@
+version: 2.2
+pipelines:
+  - id: snowflake-to-hubspot
+    status: running
+    connectors:
+# [SOURCE] SNOWFLAKE CONNECTOR
+      - id: source-snowflake
+        type: source
+        plugin: standalone:snowflake
+        settings:
+          snowflake.url: ${SNOWFLAKE_URL}
+          snowflake.table: ${SNOWFLAKE_TABLE}
+          snowflake.orderingColumn: ${SNOWFLAKE_ORDERING_COLUMN}
+          snowflake.columns: ${SNOWFLAKE_COLUMNS}
+          snowflake.primaryKeys: ${SNOWFLAKE_PRIMARY_KEYS}
+          snowflake.batchsize: ${SNOWFLAKE_BATCH_SIZE}
+        processors:
+          - id: decode-json-snowflake
+            plugin: json.decode
+            settings:
+              field: ".Payload.After"
+# [DESTINATION] HUBSPOT SINK CONNECTOR
+      - id: destination-hubspot
+        type: destination
+        plugin: standalone:hubspot
+        settings:
+          accessToken: ${HUBSPOT_ACCESS_TOKEN}
+          resource: crm.contacts
+        # [PROCESSOR] LOWERCASE HUBSPOT PROPERTIES
+        processors:
+          - id: lowercase-hubspot-properties
+            plugin: standalone:lowercase-hubspot-properties
+    processors:
+# # [PROCESSOR] GET HUBSPOT CONTACT BY ID
+      - id: get-hubspot-contact-by-id
+        plugin: "webhook.http"
+        settings:
+          backoffRetry.count: "0"
+          backoffRetry.factor: "2"
+          backoffRetry.max: "5s"
+          backoffRetry.min: "100ms"
+          request.body: ""
+          request.contentType: "application/json"
+          request.method: "GET"
+          request.url: "https://api.hubapi.com/crm/./v3/objects/contacts/{{.Payload.After.HS_OBJECT_ID}}"
+          headers.Authorization: ${HUBSPOT_BEARER_TOKEN}
+          response.body: ".Payload.After.getHubspotContactById"
+          response.status: ".Metadata[\"http_status_get_hubspot_contact_by_id\"]"
+# [PROCESSOR] DECODE HUBSPOT API RESPONSE
+      - id: decode-json-hubspot-1
+        plugin: json.decode
+        settings:
+          field: ".Payload.After.getHubspotContactById"
+        condition: '{{ eq .Metadata.http_status_get_hubspot_contact_by_id "200" }}'
+# [PROCESSOR] SEARCH HUBSPOT CONTACT BY EMAIL
+      - id: search-hubspot-contact-by-email
+        plugin: "webhook.http"
+        settings:
+          backoffRetry.count: "0"
+          backoffRetry.factor: "2"
+          backoffRetry.max: "5s"
+          backoffRetry.min: "100ms"
+          request.body: >
+            {
+              "filterGroups": [
+                {
+                  "filters": [
+                    {
+                      "propertyName": "email",
+                      "operator": "EQ",
+                      "value": "{{.Payload.After.EMAIL}}"
+                    }
+                  ]
+                }
+              ],
+              "properties": ["email", "firstname", "lastname", "phone"]
+            }
+          request.contentType: "application/json"
+          request.method: "POST"
+          request.url: "https://api.hubapi.com/crm/v3/objects/contacts/search"
+          headers.Authorization: ${HUBSPOT_ACCESS_TOKEN}
+          response.body: ".Payload.After.searchHubspotContactByEmail"
+          response.status: ".Metadata[\"http_status_search_hubspot_contact_by_email\"]"
+# [PROCESSOR] DECODE HUBSPOT API RESPONSE
+      - id: decode-json-hubspot-2
+        plugin: json.decode
+        settings:
+          field: ".Payload.After.searchHubspotContactByEmail"
+        condition: '{{ eq .Metadata.http_status_search_hubspot_contact_by_email "200" }}'
+# [PROCESSOR] CUSTOM LOGIC
+      - id: custom-logic
+        plugin: standalone:custom-logic
